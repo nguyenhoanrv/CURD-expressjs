@@ -1,17 +1,39 @@
 const express = require("express");
 const router = new express.Router();
 const User = require("../models/User");
-
+const bcrypt = require("bcrypt");
+const AuthMiddleware = require("../middlewares/AuthMiddleware");
+//register
 router.post("/users", async (req, res) => {
-  const user = new User(req.body);
   try {
+    const user = new User(req.body);
+    const token = await user.generateToken();
     await user.save();
-    res.status(201).send(user);
+    res.status(201).send({ user, token });
   } catch (e) {
     res.status(400).send(e);
   }
 });
 
+//login
+router.post("/users/login", async (req, res) => {
+  try {
+    const user = await User.findByCerdentials(
+      req.body.email,
+      req.body.password
+    );
+    const token = await user.generateToken();
+
+    res.send({ user, token });
+  } catch (e) {
+    res.status(401).send(e);
+  }
+});
+//get me
+router.get("/users/me", AuthMiddleware, (req, res) => {
+  res.send(req.user);
+});
+//get user by id
 router.get("/users/:id", async (req, res) => {
   try {
     const _id = req.params.id;
@@ -25,6 +47,7 @@ router.get("/users/:id", async (req, res) => {
   }
 });
 
+//get all user
 router.get("/users", async (req, res) => {
   try {
     const users = await User.find({});
@@ -34,7 +57,8 @@ router.get("/users", async (req, res) => {
   }
 });
 
-router.patch("/users/:id", async (req, res) => {
+//update user
+router.patch("/users/:id", AuthMiddleware, async (req, res) => {
   const updateFields = Object.keys(req.body);
   const allowUpdateFields = ["name", "email", "password", "age"];
   const isValidOperation = updateFields.every((field) =>
@@ -44,12 +68,10 @@ router.patch("/users/:id", async (req, res) => {
   if (!isValidOperation) {
     return res.status(400).send({ error: "Invalid updates!" });
   }
-  const _id = req.params.id;
   try {
-    const user = await User.findByIdAndUpdate(_id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const user = req.user;
+    updateFields.forEach((field) => (user[field] = req.body[field]));
+    await user.save();
     if (!user) {
       return res.status(404).send("Not found");
     }
@@ -59,13 +81,10 @@ router.patch("/users/:id", async (req, res) => {
   }
 });
 
-router.delete("/users/:id", async (req, res) => {
-  const _id = req.params.id;
+//delete user
+router.delete("/users/me", AuthMiddleware, async (req, res) => {
   try {
-    const user = await User.findByIdAndDelete(_id);
-    if (!user) {
-      return res.status(404).send("Not found");
-    }
+    const user = await req.user.remove();
     res.send(user);
   } catch (e) {
     res.status(500).send(e);
